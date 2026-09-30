@@ -1,0 +1,16 @@
+.DS_Store
+node_modules/
+artifacts/
+*.log
+.layer-bridge/
+
+# Local case studies and private verification records
+RESUME.md
+docs/evidence/
+docs/native-verification.md
+# Package output and local configuration
+dist/
+*.tgz
+.env
+.env.*
+!.env.example

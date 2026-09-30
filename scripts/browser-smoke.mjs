@@ -1,0 +1,66 @@
+import { createRequire } from 'node:module';
+import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const root=fileURLToPath(new URL('../',import.meta.url));
+const require=createRequire(import.meta.url);
+let playwright;
+try { playwright=require('playwright'); }
+catch { playwright=require(path.join(process.env.LB_NODE_MODULES || path.join(process.env.HOME,'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules'),'playwright')); }
+let executablePath=process.env.CHROME_PATH || playwright.chromium.executablePath();
+try { await access(executablePath); } catch { executablePath='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'; }
+const browser=await playwright.chromium.launch({executablePath,headless:true});
+const base=process.env.LB_TEST_URL || 'http://127.0.0.1:4317';
+const failures=[];
+try {
+  const page=await browser.newPage({viewport:{width:1120,height:760},deviceScaleFactor:1});
+  page.on('pageerror',e=>failures.push(e.message));
+  await page.goto(base+'/examples/demo.html');
+  await page.addScriptTag({path:path.join(root,'extension/collector.js')});
+  const capture=await page.evaluate(()=>LayerBridgeCollector.capture());
+  assert.ok(capture.nodes.some(n=>n.type==='text'&&n.text.includes('당신의 취향')));
+  assert.equal(capture.nodes.filter(n=>n.type==='svg').length,3);
+  capture.screenshot='data:image/png;base64,'+(await page.screenshot()).toString('base64');
+  await writeFile(path.join(root,'examples/demo.layerbridge.json'),JSON.stringify(capture));
+  console.log(`PASS browser collector: ${capture.nodes.length} layers / 3 vector illustrations`);
+  await page.setContent('<div style="display:none">HIDDEN</div><div style="width:120px;font:16px Arial">first <b>bold</b> second line wraps here</div><input type="password" value="SECRET"><div style="position:absolute;top:2000px">OFFSCREEN</div>');
+  await page.addScriptTag({path:path.join(root,'extension/collector.js')});
+  const fixture=await page.evaluate(()=>LayerBridgeCollector.capture());
+  const texts=fixture.nodes.filter(n=>n.type==='text').map(n=>n.text).join('|');
+  assert.ok(texts.includes('bold'));assert.ok(texts.includes('••••••'));assert.ok(!/HIDDEN|OFFSCREEN|SECRET/.test(texts));
+  console.log('PASS collector mixed text, wrapping, hidden nodes and masked password');
+  await page.setViewportSize({width:1480,height:940});
+  await page.goto(base);
+  await page.waitForFunction(()=>document.querySelectorAll('#render [data-id]').length>50);
+  await page.getByRole('button',{name:/당신의 취향이 머무는 곳/}).click();
+  await page.locator('textarea[name=text]').fill('레이어 편집 테스트');
+  assert.ok(await page.locator('#render').textContent().then(t=>t.includes('레이어 편집 테스트')));
+  const downloadPromise=page.waitForEvent('download');await page.locator('#export').click();const download=await downloadPromise;
+  const exported=JSON.parse(await readFile(await download.path(),'utf8'));
+  assert.ok(exported.nodes.some(n=>n.text==='레이어 편집 테스트'));
+  console.log('PASS workbench selection → text edit → JSON download');
+  await page.locator('#sample').click();
+  await page.waitForFunction(()=>document.querySelector('#render').textContent.includes('당신의 취향'));
+  await page.locator('#upload').setInputFiles({name:'app-screen.png',mimeType:'image/png',buffer:Buffer.from(capture.screenshot.split(',')[1],'base64')});
+  await page.waitForFunction(()=>document.querySelector('#layer-count').textContent==='0');
+  await page.locator('[data-tool=text]').click();
+  const stage=await page.locator('#stage').boundingBox();
+  await page.mouse.move(stage.x+30,stage.y+40);await page.mouse.down();await page.mouse.move(stage.x+190,stage.y+65,{steps:8});await page.mouse.up();
+  await page.locator('textarea[name=text]').fill('스크린샷에서 분리한 텍스트');
+  assert.equal(await page.locator('#layer-count').textContent(),'1');
+  await page.locator('[data-tool=image]').click();
+  await page.mouse.move(stage.x+40,stage.y+100);await page.mouse.down();await page.mouse.move(stage.x+110,stage.y+160,{steps:8});await page.mouse.up();
+  await page.waitForFunction(()=>document.querySelector('#layer-count').textContent==='2');
+  assert.equal(await page.locator('#render img').count(),1);
+  console.log('PASS native screenshot import, manual text region and image crop');
+  await page.locator('#sample').click();await page.waitForFunction(()=>document.querySelectorAll('#render [data-id]').length>50);
+  await page.locator('#toast').evaluate(el=>el.style.display='none');
+  await mkdir(path.join(root,'artifacts'),{recursive:true});
+  await page.screenshot({path:path.join(root,'artifacts/workbench.png'),fullPage:true});
+  await page.locator('#help').click();assert.equal(await page.locator('#guide').evaluate(el=>el.open),true);await page.locator('#close-guide').click();
+  await page.setViewportSize({width:390,height:844});await page.waitForTimeout(200);
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
+  assert.deepEqual(failures,[]);
+  console.log('PASS guide, narrow viewport and no browser runtime errors');
+} finally { await browser.close(); }

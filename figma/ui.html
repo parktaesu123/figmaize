@@ -1,0 +1,202 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+*{box-sizing:border-box}body{margin:0;padding:24px;font:12px/1.65 Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:var(--figma-color-bg,#fbfcf9);color:var(--figma-color-text,#25362b)}.brand{font-size:16px;font-weight:650;color:#4c825e}.badge{float:right;font-size:9px;letter-spacing:1.5px;color:#8b978b;margin-top:5px}h1{font-size:25px;letter-spacing:-.9px;line-height:1.45;margin:24px 0 10px}p{color:var(--figma-color-text-secondary,#809079);font-size:11px}.connection{border:1px solid #879b8033;border-radius:10px;padding:15px;margin-top:20px}.state{display:flex;align-items:center;gap:8px;font-weight:600;font-size:12px}.dot{width:7px;height:7px;border-radius:50%;background:#b0b9ac}.online{background:#5caa72}#document{font-size:10px;margin-top:7px;word-break:break-all;color:var(--figma-color-text-secondary,#7a8772)}label{display:block;font-size:10px;color:var(--figma-color-text-secondary,#7a8772);margin-top:19px}input[type=password]{display:block;width:100%;border:1px solid #91a38655;border-radius:6px;padding:10px;margin-top:5px;background:var(--figma-color-bg-secondary,#f6f8f2);color:var(--figma-color-text,#25362b)}button{width:100%;padding:11px;border:0;border-radius:7px;background:#3b714d;color:white;font:inherit;font-weight:600;margin-top:12px;cursor:pointer}button:disabled{opacity:.45;cursor:default}#disconnect{background:#879b8022;color:var(--figma-color-text,#446747)}#status{margin-top:15px;font-size:11px;word-break:break-word;white-space:pre-wrap}#warnings{font-size:10px;max-height:90px;overflow:auto;padding-left:16px;color:var(--figma-color-text-secondary,#7a8772)}details{border-top:1px solid #91a38633;padding-top:14px;margin-top:23px;font-size:10px;color:var(--figma-color-text-secondary,#7a8772)}summary{cursor:pointer}input[type=file]{width:100%;margin:12px 0;font-size:10px}.foot{font-size:9px;margin-top:22px;color:var(--figma-color-text-secondary,#8b9684)}[hidden]{display:none!important}
+</style><body><div class="brand">▧ &nbsp; figmaize <span class="badge">MCP BRIDGE</span></div><h1>대화에서 요청하고,<br>피그마에서 바로 확인.</h1><p>MCP와 연결하면 이 파일의 레이어를 만들고,<br>선택한 요소를 읽고 수정할 수 있습니다.</p>
+<div class="connection"><div class="state"><span id="dot" class="dot"></span><span id="state">연결 대기</span></div><div id="document">현재 파일과 페이지에 연결합니다.</div></div>
+<label for="token">로컬 연결 코드<input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="start.command에서 표시된 코드"></label><button id="connect">MCP 브리지 연결</button><button id="disconnect" hidden>연결 해제</button><div id="status" role="status" aria-live="polite">이 창을 열어두면 MCP 요청이 캔버스에 반영됩니다.</div><ul id="warnings"></ul>
+<details><summary>백업 JSON 파일 직접 가져오기</summary><input id="file" type="file" accept=".json"><label><input id="reference" type="checkbox" checked> 원본 스크린샷도 함께 배치</label><button id="import" disabled>파일에서 레이어 생성</button></details>
+<p class="foot">연결: localhost:4318 · 연결 코드는 이 창에만 유지됩니다.<br>웹 화면은 브라우저 확장 또는 MCP의 URL 수집으로 보낼 수 있습니다.</p>
+<script>window.addEventListener('error',function(event){document.querySelector('#status').textContent='플러그인 UI 오류: '+event.message;});</script><script>(function (scope) {
+  'use strict';
+  const VERSION = 1;
+  const MAX_NODES = 5000;
+  function validateCapture(value) {
+    if (!value || value.format !== 'layer-bridge' || value.version !== VERSION) throw new Error('지원하지 않는 파일입니다. Layer Bridge v1 JSON을 선택하세요.');
+    const size = value.viewport;
+    if (!size || !Number.isFinite(size.width) || !Number.isFinite(size.height) || size.width < 1 || size.height < 1 || size.width > 20000 || size.height > 20000) throw new Error('화면 크기가 올바르지 않습니다.');
+    if (!Array.isArray(value.nodes) || value.nodes.length > MAX_NODES) throw new Error('레이어 수가 허용 범위를 벗어났습니다.');
+    const ids = new Set();
+    const kinds = new Map();
+    const depths = new Map();
+    for (const node of value.nodes) {
+      if (!node || typeof node.id !== 'string' || ids.has(node.id)) throw new Error('레이어 ID가 없거나 중복됩니다.');
+      if (!['frame', 'text', 'image', 'svg'].includes(node.type)) throw new Error('알 수 없는 레이어 종류입니다.');
+      if (node.parentId && !ids.has(node.parentId)) throw new Error('부모 레이어가 자식보다 먼저 있어야 합니다.');
+      if (node.parentId && kinds.get(node.parentId) !== 'frame') throw new Error('부모 레이어는 프레임이어야 합니다.');
+      const depth = node.parentId ? depths.get(node.parentId) + 1 : 0;
+      if (depth > 100) throw new Error('레이어 중첩이 너무 깊습니다.');
+      depths.set(node.id, depth);
+      ids.add(node.id);
+      kinds.set(node.id, node.type);
+      if (typeof node.name !== 'string') throw new Error('레이어 이름이 올바르지 않습니다.');
+      const b = node.bounds;
+      if (!b || !['x', 'y', 'width', 'height'].every(k => Number.isFinite(b[k])) || b.width <= 0 || b.height <= 0 || b.width > 100000 || b.height > 100000 || Math.abs(b.x) > 1000000 || Math.abs(b.y) > 1000000) throw new Error('레이어 좌표가 올바르지 않습니다.');
+      if (node.type === 'text' && (typeof node.text !== 'string' || node.text.length > 100000)) throw new Error('텍스트 데이터가 올바르지 않습니다.');
+      if (node.type === 'svg' && (typeof node.svg !== 'string' || node.svg.length > 2000000 || /<\s*(script|foreignObject)\b|\bon\w+\s*=|(?:href|url)\s*[=(]\s*["']?\s*(?:https?:|javascript:|\/\/)/i.test(node.svg))) throw new Error('외부 참조나 실행 콘텐츠가 있는 SVG는 가져올 수 없습니다.');
+      if (node.image && !isImage(node.image)) throw new Error('이미지는 PNG/JPEG/WebP 데이터로 포함해야 합니다.');
+      if (node.semantic !== undefined) {
+        const s = node.semantic;
+        if (!s || !['button','input','link','card','navigation','header','section'].includes(s.kind) || typeof s.label !== 'string' || s.label.length > 100 || typeof s.component !== 'boolean' || s.component && !['button','input','link','card'].includes(s.kind)) throw new Error('컴포넌트 의미 정보가 올바르지 않습니다.');
+      }
+      if (node.layout !== undefined) {
+        const l = node.layout;
+        if (!l || !['HORIZONTAL','VERTICAL','PRESERVE'].includes(l.mode) || !Number.isFinite(l.gap) || l.gap < 0 || l.gap > 10000 || !Array.isArray(l.padding) || l.padding.length !== 4 || l.padding.some(n => !Number.isFinite(n) || n < 0 || n > 10000) || typeof l.justify !== 'string' || l.justify.length > 40 || typeof l.align !== 'string' || l.align.length > 40) throw new Error('Auto Layout 정보가 올바르지 않습니다.');
+      }
+      if (node.flow !== undefined) {
+        const f = node.flow;
+        if (!f || !['static','relative','absolute','fixed','sticky'].includes(f.position) || !Number.isFinite(f.grow) || f.grow < 0 || f.grow > 10000 || typeof f.align !== 'string' || f.align.length > 40 || !Array.isArray(f.margin) || f.margin.length !== 4 || f.margin.some(n => !Number.isFinite(n) || Math.abs(n) > 100000)) throw new Error('레이아웃 흐름 정보가 올바르지 않습니다.');
+      }
+    }
+    if (value.screenshot && !isImage(value.screenshot)) throw new Error('원본 이미지 형식이 올바르지 않습니다.');
+    if (value.warnings && (!Array.isArray(value.warnings) || value.warnings.some(w => typeof w !== 'string'))) throw new Error('확인 사항 형식이 올바르지 않습니다.');
+    if (value.source?.collection !== undefined) {
+      const c = value.source.collection;
+      if (!c || typeof c.id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(c.id) || !Number.isInteger(c.index) || c.index < 0 || c.index > 1000 || typeof value.source.screenId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(value.source.screenId)) throw new Error('화면 모음 정보가 올바르지 않습니다.');
+    }
+    return value;
+  }
+  function isImage(value) { return typeof value === 'string' && value.length < 40000000 && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=\s]+$/.test(value); }
+  const colorComponent = '([+-]?(?:\\d*\\.\\d+|\\d+)(?:e[+-]?\\d+)?%?)';
+  const srgbColor = new RegExp('^color\\(\\s*srgb\\s+' + colorComponent + '\\s+' + colorComponent + '\\s+' + colorComponent + '(?:\\s*/\\s*' + colorComponent + ')?\\s*\\)$', 'i');
+  function color(value) {
+    if (typeof value !== 'string' || !value || value === 'transparent') return null;
+    const clamp = n => Math.max(0, Math.min(1, n));
+    let parts;
+    if ((parts = /^#([a-f\d]{6})$/i.exec(value))) { const n = parseInt(parts[1], 16); return { r: (n >> 16 & 255) / 255, g: (n >> 8 & 255) / 255, b: (n & 255) / 255, a: 1 }; }
+    if ((parts = srgbColor.exec(value.trim()))) {
+      const channels = parts.slice(1).map(part => part === undefined ? 1 : parseFloat(part) / (part.endsWith('%') ? 100 : 1));
+      if (!channels.every(Number.isFinite)) return null;
+      const [r, g, b, a] = channels.map(clamp);
+      return { r, g, b, a };
+    }
+    parts = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/.exec(value);
+    if (!parts || !parts.slice(1).every(part => part === undefined || Number.isFinite(+part))) return null;
+    return { r: clamp(+parts[1] / 255), g: clamp(+parts[2] / 255), b: clamp(+parts[3] / 255), a: clamp(parts[4] === undefined ? 1 : +parts[4]) };
+  }
+  function paint(value) { const c = color(value); return c && c.a > 0 ? [{ type: 'SOLID', color: { r: c.r, g: c.g, b: c.b }, opacity: c.a }] : []; }
+  scope.LayerBridge = { VERSION, MAX_NODES, validateCapture, color, paint, isImage };
+})(globalThis);
+</script><script>'use strict';
+const $ = selector => document.querySelector(selector);
+const BASE = 'http://localhost:4318';
+let sessionId = null, connecting = false, busy = false, activeToken = '', capture = null, requestSequence = 0;
+// Figma's opaque iframe may not expose secure-context randomUUID. This ID is not an auth secret.
+const clientId = 'figma-' + (globalThis.crypto?.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
+const pending = new Map();
+function controls() {
+  $('#connect').hidden = !!sessionId;
+  $('#disconnect').hidden = !sessionId;
+  $('#connect').disabled = connecting || busy;
+  $('#disconnect').disabled = busy;
+  $('#token').disabled = !!sessionId || connecting || busy;
+  $('#file').disabled = busy || !!sessionId;
+  $('#import').disabled = !capture || busy || !!sessionId;
+  $('#dot').classList.toggle('online', !!sessionId);
+  $('#state').textContent = sessionId ? busy ? '피그마 작업 중' : 'MCP 연결됨' : connecting ? '연결 중…' : '연결 대기';
+}
+function warnings(items = []) {
+  $('#warnings').replaceChildren();
+  for (const text of items.slice(0, 20)) { const li = document.createElement('li'); li.textContent = text; $('#warnings').append(li); }
+}
+function pluginCommand(id, operation, payload = {}, timeoutMs = 0) {
+  return new Promise((resolve, reject) => {
+    // Only the read-only connection handshake times out. Mutations are never rerun.
+    const timer = timeoutMs ? setTimeout(() => {
+      pending.delete(id);
+      reject(new Error('피그마 응답을 받지 못했습니다. 플러그인을 다시 실행하세요.'));
+    }, timeoutMs) : null;
+    pending.set(id, { resolve, reject, timer });
+    parent.postMessage({ pluginMessage: { type: 'bridge-command', id, operation, payload } }, '*');
+  });
+}
+async function api(path, method = 'GET', body) {
+  const response = await fetch(BASE + path, { method, headers: { Authorization: 'Bearer ' + activeToken, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(12000) });
+  const result = await response.json();
+  if (!response.ok) { const error = new Error(result.error || `HTTP ${response.status}`); error.status = response.status; throw error; }
+  return result;
+}
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function poll(connectedSession) {
+  while (sessionId === connectedSession) {
+    try {
+      const { job } = await api('/v1/poll?sessionId=' + encodeURIComponent(connectedSession));
+      if (sessionId !== connectedSession) break;
+      if (!job) { await pause(1000); continue; }
+      busy = true; controls();
+      $('#status').textContent = `${job.operation} 실행 중 · ${job.id.slice(0, 8)}`;
+      // No timer reruns a command. An interrupted mutation must be checked in Figma.
+      let delivery;
+      try { delivery = { sessionId: connectedSession, jobId: job.id, ok: true, result: await pluginCommand(job.id, job.operation, job.payload) }; }
+      catch (error) { delivery = { sessionId: connectedSession, jobId: job.id, ok: false, error: error.message }; }
+      let delivered = false;
+      while (!delivered && sessionId === connectedSession) {
+        try { await api('/v1/result', 'POST', delivery); delivered = true; }
+        catch (error) {
+          if ([401, 403, 404].includes(error.status)) { sessionId = null; $('#status').textContent = '작업은 실행되었지만 결과를 서버에 전달하지 못했습니다. 캔버스를 확인한 뒤 다시 연결하세요. ' + error.message; break; }
+          $('#status').textContent = '피그마 실행 결과를 서버로 다시 전달하는 중입니다. 레이어 생성은 반복하지 않습니다.';
+          await pause(2000);
+        }
+      }
+      busy = false; controls();
+      if (delivered) {
+        $('#status').textContent = delivery.ok ? `완료 · ${job.operation}${delivery.result?.count !== undefined ? ' · ' + delivery.result.count + '개 레이어' : ''}` : '작업 실패 · ' + delivery.error;
+        warnings(delivery.result?.warnings || []);
+      }
+    } catch (error) {
+      if (sessionId !== connectedSession) break;
+      if ([401, 403, 404].includes(error.status)) { sessionId = null; controls(); $('#status').textContent = error.message + ' 다시 연결하세요.'; break; }
+      $('#status').textContent = '로컬 서버 연결을 다시 확인하고 있습니다. ' + error.message;
+      await pause(2000);
+    }
+  }
+}
+$('#connect').onclick = async () => {
+  if (busy || connecting || sessionId) return;
+  activeToken = $('#token').value.trim();
+  if (activeToken.length < 24) { $('#status').textContent = 'start.command에 표시된 연결 코드를 입력하세요.'; return; }
+  connecting = true; controls();
+  try {
+    $('#status').textContent = '현재 피그마 파일과 페이지를 확인하고 있습니다…';
+    const document = await pluginCommand('local-document-' + (++requestSequence), 'get_document', {}, 10000);
+    const result = await api('/v1/connect', 'POST', { clientId, document });
+    if (typeof result.sessionId !== 'string') throw new Error('서버 연결 응답이 올바르지 않습니다.');
+    sessionId = result.sessionId;
+    $('#document').textContent = `${document.name} · ${document.pageName}`;
+    $('#status').textContent = '연결되었습니다. MCP 또는 Chrome 확장에서 이 피그마로 화면을 보내세요.';
+    void poll(sessionId);
+  } catch (error) { $('#status').textContent = '연결 실패: ' + error.message + '\nstart.command로 서버를 실행했는지 확인하세요.'; }
+  finally { connecting = false; controls(); }
+};
+$('#disconnect').onclick = async () => {
+  if (busy || !sessionId) return;
+  const id = sessionId; sessionId = null; controls();
+  try { await api('/v1/disconnect', 'POST', { sessionId: id }); } catch { /* The server also expires inactive sessions. */ }
+  $('#status').textContent = '연결을 해제했습니다. 현재 레이어는 유지됩니다.';
+};
+$('#file').onchange = async () => {
+  capture = null; controls();
+  try { const file = $('#file').files[0]; if (!file) return; if (file.size > 50000000) throw new Error('50MB 이하 파일을 선택하세요.'); capture = LayerBridge.validateCapture(JSON.parse(await file.text())); $('#status').textContent = `${capture.title} · ${capture.nodes.length}개 레이어 준비`; warnings(capture.warnings); }
+  catch (error) { $('#status').textContent = error.message; }
+  controls();
+};
+$('#import').onclick = async () => {
+  if (!capture || busy || sessionId) return;
+  busy = true; controls();
+  try { const result = await pluginCommand('local-import-' + (++requestSequence), 'import_capture', { capture, options: { reference: $('#reference').checked } }); $('#status').textContent = `${result.count}개 레이어 생성 완료`; warnings(result.warnings); }
+  catch (error) { $('#status').textContent = error.message; }
+  finally { busy = false; controls(); }
+};
+window.onmessage = event => {
+  // Desktop Figma relays replies from its host window, not the immediate sandbox parent.
+  if (event.source !== parent && event.origin !== 'https://www.figma.com' && event.origin !== 'https://figma.com') return;
+  const message = event.data?.pluginMessage; if (!message) return;
+  if (message.type === 'progress') $('#status').textContent = `레이어 생성 중 · ${message.done} / ${message.total}`;
+  if (message.type !== 'bridge-result') return;
+  const request = pending.get(message.id); if (!request) return;
+  pending.delete(message.id);
+  if (request.timer) clearTimeout(request.timer);
+  if (message.ok) request.resolve(message.result); else request.reject(new Error(message.error || '피그마 작업 실패'));
+};
+controls();
+
+$('#status').textContent = '준비 완료. 연결 코드를 입력하고 MCP 브리지 연결을 누르세요.';
+</script></body></html>

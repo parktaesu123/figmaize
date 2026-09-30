@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "figmaize — 화면을 피그마 레이어로",
+  "version": "0.2.0",
+  "description": "현재 웹 화면을 수집하고 로컬 MCP 브리지를 통해 연결된 피그마 파일에 편집 가능한 레이어를 생성합니다.",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:4318/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "figmaize · Figma로 보내기"
+  }
+}
