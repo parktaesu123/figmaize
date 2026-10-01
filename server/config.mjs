@@ -1,9 +1,12 @@
+import {existsSync} from 'node:fs';
+import {homedir} from 'node:os';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 export const ROOT = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
-export const DATA_DIR = process.env.LAYER_BRIDGE_DATA_DIR || path.join(ROOT, '.layer-bridge');
+const userData=process.platform==='win32'?path.join(process.env.LOCALAPPDATA||homedir(),'figmaize'):process.platform==='darwin'?path.join(homedir(),'Library','Application Support','figmaize'):path.join(process.env.XDG_DATA_HOME||path.join(homedir(),'.local','share'),'figmaize');
+export const DATA_DIR = process.env.FIGMAIZE_DATA_DIR || process.env.LAYER_BRIDGE_DATA_DIR || (existsSync(path.join(ROOT,'.layer-bridge'))?path.join(ROOT,'.layer-bridge'):userData);
 export const PORT = Number(process.env.LAYER_BRIDGE_PORT || 4318);
 export const URL_BASE = `http://127.0.0.1:${PORT}`;
 export async function getToken() {

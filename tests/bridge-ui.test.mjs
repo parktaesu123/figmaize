@@ -51,7 +51,7 @@ for(const origin of ['https://www.figma.com','https://figma.com']) {
     assert.equal(h.delivered,1);
     assert.equal(h.handshakeTimerCount,0);
     assert.equal(h.commands.filter(command=>command.operation==='import_capture').length,1);
-    assert.equal(h.el('#state').textContent,'MCP 연결됨');
+    assert.equal(h.el('#state').textContent,'수집기 연결됨');
     await h.el('#disconnect').onclick();
   });
 }
@@ -104,10 +104,10 @@ test('read-only handshake timeout restores controls, ignores late replies and pe
   assert.equal(h.delivered,1);
   assert.equal(h.handshakeTimerCount,0);
   assert.equal(h.commands.filter(command=>command.operation==='import_capture').length,1);
-  assert.equal(h.el('#state').textContent,'MCP 연결됨');
+  assert.equal(h.el('#state').textContent,'수집기 연결됨');
   await h.el('#disconnect').onclick();
 });
-test('Figma UI connects to chosen document, executes job and delivers native result',async()=>{const h=harness();await h.el('#connect').onclick();for(let i=0;i<8&&!h.delivered;i++)await tick();assert.equal(h.delivered,1);assert.equal(h.commands.filter(c=>c.operation==='import_capture').length,1);assert.equal(h.el('#state').textContent,'MCP 연결됨');assert.match(h.el('#status').textContent,/완료/);const body=JSON.parse(h.requests.find(r=>r.route==='/v1/result').body);assert.equal(body.result.nodeId,'2:1');await h.el('#disconnect').onclick();});
+test('Figma UI connects to chosen document, executes job and delivers native result',async()=>{const h=harness();await h.el('#connect').onclick();for(let i=0;i<8&&!h.delivered;i++)await tick();assert.equal(h.delivered,1);assert.equal(h.commands.filter(c=>c.operation==='import_capture').length,1);assert.equal(h.el('#state').textContent,'수집기 연결됨');assert.match(h.el('#status').textContent,/완료/);const body=JSON.parse(h.requests.find(r=>r.route==='/v1/result').body);assert.equal(body.result.nodeId,'2:1');await h.el('#disconnect').onclick();});
 test('result transport retries do not repeat canvas mutation',async()=>{const h=harness({retryResult:true});await h.el('#connect').onclick();for(let i=0;i<12&&!h.delivered;i++)await tick();assert.equal(h.resultPosts,2);assert.equal(h.commands.filter(c=>c.operation==='import_capture').length,1);await h.el('#disconnect').onclick();});
 test('authentication failure never begins plugin mutation',async()=>{const h=harness({wrongToken:true});await h.el('#connect').onclick();assert.equal(h.commands.length,1);assert.equal(h.commands[0].operation,'get_document');assert.match(h.el('#status').textContent,/연결 실패/);assert.equal(h.el('#token').disabled,false);});
 
@@ -125,7 +125,7 @@ for(const cryptoMode of ['without-randomUUID','absent']) {
     assert.ok(clientId.length>=8&&clientId.length<=160);
     assert.equal(document.pageId,'p1');
     assert.equal(connection.headers.Authorization,'Bearer a-valid-test-pairing-token-123');
-    assert.equal(h.el('#state').textContent,'MCP 연결됨');
+    assert.equal(h.el('#state').textContent,'수집기 연결됨');
     await h.el('#disconnect').onclick();
   });
 }

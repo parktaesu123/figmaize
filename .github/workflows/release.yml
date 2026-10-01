@@ -1,0 +1,42 @@
+name: Alpha release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Check tag and package version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node -e 'if(process.env.RELEASE_TAG !== "v" + require("./package.json").version) process.exit(1)'
+      - run: npm ci
+      - run: npm run build
+      - run: git diff --exit-code -- figma/code.js figma/ui.html
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - run: npm run release:plugin
+      - run: npm pack --pack-destination dist
+      - name: Archive development plugin
+        run: cd dist && zip -r figmaize-plugin.zip figmaize-plugin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: figmaize-alpha
+          path: |
+            dist/*.tgz
+            dist/figmaize-plugin.zip
+      - name: Publish GitHub prerelease artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" dist/*.tgz dist/figmaize-plugin.zip --verify-tag --prerelease --title "figmaize $RELEASE_TAG" --notes-file CHANGELOG.md

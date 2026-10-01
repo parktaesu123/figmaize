@@ -14,7 +14,7 @@ function controls() {
   $('#file').disabled = busy || !!sessionId;
   $('#import').disabled = !capture || busy || !!sessionId;
   $('#dot').classList.toggle('online', !!sessionId);
-  $('#state').textContent = sessionId ? busy ? '피그마 작업 중' : 'MCP 연결됨' : connecting ? '연결 중…' : '연결 대기';
+  $('#state').textContent = sessionId ? busy ? '피그마 작업 중' : '수집기 연결됨' : connecting ? '연결 중…' : '연결 대기';
 }
 function warnings(items = []) {
   $('#warnings').replaceChildren();
@@ -32,7 +32,7 @@ function pluginCommand(id, operation, payload = {}, timeoutMs = 0) {
   });
 }
 async function api(path, method = 'GET', body) {
-  const response = await fetch(BASE + path, { method, headers: { Authorization: 'Bearer ' + activeToken, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(12000) });
+  const response = await fetch(BASE + path, { method, headers: { Authorization: 'Bearer ' + activeToken, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(path==='/v1/sites/discover'?30000:12000) });
   const result = await response.json();
   if (!response.ok) { const error = new Error(result.error || `HTTP ${response.status}`); error.status = response.status; throw error; }
   return result;
@@ -61,6 +61,7 @@ async function poll(connectedSession) {
       }
       busy = false; controls();
       if (delivered) {
+        if(job.operation==='prepare_site'&&delivery.ok)$('#document').textContent=delivery.result.document.pageName;
         $('#status').textContent = delivery.ok ? `완료 · ${job.operation}${delivery.result?.count !== undefined ? ' · ' + delivery.result.count + '개 레이어' : ''}` : '작업 실패 · ' + delivery.error;
         warnings(delivery.result?.warnings || []);
       }
@@ -86,6 +87,7 @@ $('#connect').onclick = async () => {
     $('#document').textContent = `${document.name} · ${document.pageName}`;
     $('#status').textContent = '연결되었습니다. MCP 또는 Chrome 확장에서 이 피그마로 화면을 보내세요.';
     void poll(sessionId);
+    if(typeof refreshCollections==='function')void refreshCollections().catch(error=>siteStatus(error.message));
   } catch (error) { $('#status').textContent = '연결 실패: ' + error.message + '\nstart.command로 서버를 실행했는지 확인하세요.'; }
   finally { connecting = false; controls(); }
 };

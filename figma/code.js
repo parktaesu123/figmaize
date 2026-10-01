@@ -22,6 +22,7 @@
       ids.add(node.id);
       kinds.set(node.id, node.type);
       if (typeof node.name !== 'string') throw new Error('레이어 이름이 올바르지 않습니다.');
+      if (node.selector !== undefined && (typeof node.selector !== 'string' || node.selector.length > 4096)) throw new Error('요소 선택자가 올바르지 않습니다.');
       const b = node.bounds;
       if (!b || !['x', 'y', 'width', 'height'].every(k => Number.isFinite(b[k])) || b.width <= 0 || b.height <= 0 || b.width > 100000 || b.height > 100000 || Math.abs(b.x) > 1000000 || Math.abs(b.y) > 1000000) throw new Error('레이어 좌표가 올바르지 않습니다.');
       if (node.type === 'text' && (typeof node.text !== 'string' || node.text.length > 100000)) throw new Error('텍스트 데이터가 올바르지 않습니다.');
@@ -70,9 +71,53 @@
   scope.LayerBridge = { VERSION, MAX_NODES, validateCapture, color, paint, isImage };
 })(globalThis);
 
+/* Native reuse is opt-in; unchanged user masters are never overwritten. */
+function reusableSignature(source, capture) {
+  const items=[],byParent=new Map();for(const n of capture.nodes){const list=byParent.get(n.parentId)||[];list.push(n);byParent.set(n.parentId,list);}
+  function visit(n){if(items.length>50)return;items.push([n.type,n.text,n.svg,n.image,n.style,n.layout,n.bounds.width,n.bounds.height,n.bounds.x-source.bounds.x,n.bounds.y-source.bounds.y]);for(const child of byParent.get(n.id)||[])visit(child);}
+  visit(source);if(items.length>50)return null;const value=JSON.stringify([source.semantic?.kind,items]);return value.length<60000?value:null;
+}
+async function shareComponents(byId,capture,stage,options,warnings){
+  if(!options.reuseComponents&&!options.variants)return {instanceCount:0,variantSets:0};
+  const scope=capture.source?.collection?.id||stage.id,page=figma.currentPage;
+  const masters=page.findAll(n=>n.type==='COMPONENT'&&n.getPluginData('figmaizeComponentScope')===scope);
+  let instanceCount=0,variantSets=0,library;
+  function libraryFrame(){if(library)return library;library=page.children.find(n=>n.getPluginData('figmaizeLibrary')===scope);if(!library){library=figma.createFrame();page.appendChild(library);library.name='Components / '+(capture.source?.url||'Capture');library.setPluginData('figmaizeLibrary',scope);library.fills=[];library.clipsContent=false;library.x=Math.max(stage.x+stage.width+200,...page.children.filter(n=>n!==library).map(n=>n.x+n.width+200));library.y=stage.y;library.resize(1000,1000);}return library;}
+  function replace(component,master){const parent=component.parent,index=parent.children.indexOf(component),x=component.x,y=component.y;const instance=master.createInstance();parent.insertChild(index,instance);instance.name=component.name;instance.resize(component.width,component.height);instance.x=x;instance.y=y;for(const k of ['layerBridgeSelector','layerBridgeSemantic'])instance.setPluginData(k,component.getPluginData(k));if(parent.layoutMode&&parent.layoutMode!=='NONE'){instance.layoutPositioning=component.layoutPositioning;instance.layoutGrow=component.layoutGrow;instance.layoutAlign=component.layoutAlign;}return instance;}
+  for(const entry of byId.values()){
+    const component=entry.target,source=entry.source;if(component.type!=='COMPONENT'||component.removed)continue;
+    const sig=reusableSignature(source,capture);if(!sig)continue;
+    const family=source.selector?JSON.stringify([capture.source?.url,source.selector,source.semantic?.kind]):'';
+    const same=masters.find(n=>!n.removed&&n.getPluginData('figmaizeSignature')===sig);
+    if(same&&options.reuseComponents){entry.target=replace(component,same);component.remove();instanceCount++;continue;}
+    component.setPluginData('figmaizeComponentScope',scope);component.setPluginData('figmaizeSignature',sig);component.setPluginData('figmaizeFamily',family);
+    const related=options.variants&&family?masters.find(n=>!n.removed&&n.getPluginData('figmaizeFamily')===family&&n.getPluginData('figmaizeSignature')!==sig):null;
+    if(related){
+      const instance=replace(component,component);entry.target=instance;instanceCount++;
+      let set=related.parent?.type==='COMPONENT_SET'?related.parent:null;
+      if(!set){const oldInstance=replace(related,related);instanceCount++;for(const value of byId.values())if(value.target===related)value.target=oldInstance;
+        const lib=libraryFrame();component.name='State=2';related.name='State=1';set=figma.combineAsVariants([related,component],lib);set.name=(source.semantic?.kind||'Control')+' / '+source.semantic?.label;set.x=0;set.y=lib.children.filter(n=>n!==set).reduce((h,n)=>Math.max(h,n.y+n.height+60),0);variantSets++;
+      }else{component.name='State='+(set.children.length+1);set.appendChild(component);}
+      let x=0;for(const variant of set.children){variant.x=x;variant.y=0;x+=variant.width+32;}set.resize(Math.max(1,x),Math.max(...set.children.map(n=>n.height)));const lib=libraryFrame();lib.resize(Math.max(1000,set.width),Math.max(lib.height,set.y+set.height));
+    }
+    masters.push(component);
+  }
+  return {instanceCount,variantSets};
+}
+async function linkCapturedState(stage,capture,options,warnings){
+  if(!options.prototype||!capture.source?.presentation?.baseScreenId)return 0;
+  const source=capture.source,base=collectionStages(figma.currentPage,source.collection.id).find(n=>n.getPluginData('layerBridgeCaptureKey')===source.collection.id+'/'+source.presentation.baseScreenId);
+  const action=source.actions?.at(-1);if(!base||!['click','hover'].includes(action?.type))return 0;
+  const controls=base.findAll(n=>n.getPluginData('layerBridgeSelector')===action.selector);
+  if(controls.length!==1||typeof controls[0].setReactionsAsync!=='function')return 0;
+  const trigger={type:action.type==='hover'?'ON_HOVER':'ON_CLICK'};
+  const reactions=[...(controls[0].reactions||[])];if(reactions.some(r=>r.trigger?.type===trigger.type))return 0;
+  await controls[0].setReactionsAsync([...reactions,{trigger,actions:[{type:'NODE',destinationId:stage.id,navigation:'NAVIGATE',transition:null,preserveScrollPosition:false}]}]);return 1;
+}
+
 /* global figma, LayerBridge, __html__ */
 'use strict';
-figma.showUI(__html__, { width: 380, height: 570, themeColors: true });
+figma.showUI(__html__, { width: 420, height: 720, themeColors: true });
 let commandQueue = Promise.resolve();
 const seenCommands = new Set();
 const commandResults = new Map();
@@ -362,11 +407,15 @@ async function importCapture(capture, options) {
       target.y = b.y - (parent?.source.bounds.y || 0);
       target.setPluginData('layerBridgeSource', source.source || 'manual');
       target.setPluginData('layerBridgeId', source.id);
+      if (source.selector) target.setPluginData('layerBridgeSelector',source.selector);
       if (source.semantic) target.setPluginData('layerBridgeSemantic', JSON.stringify(source.semantic));
       byId.set(source.id, { target, source });
       if (i % 40 === 0) { figma.ui.postMessage({ type: 'progress', done: i, total: capture.nodes.length }); await new Promise(resolve => setTimeout(resolve, 0)); }
     }
     const structure = applyStructure(byId, warnings);
+    const componentNodes = [...byId.values()].map(item=>item.target).filter(node=>node.type==='COMPONENT');
+    let reuse={instanceCount:0,variantSets:0},prototypeLinks=0;
+    try{reuse=await shareComponents(byId,capture,stage,options,warnings);prototypeLinks=await linkCapturedState(stage,capture,options,warnings);}catch(error){warnings.add('재사용/상태 연결 일부 미적용: '+error.message);}
     stage.setPluginData('source', JSON.stringify(capture.source || {}));
     stage.setPluginData('warnings', JSON.stringify([...warnings]));
     if (figma.currentPage.id !== importPage.id) throw new Error('페이지가 변경되었습니다. 원하는 페이지에서 다시 실행하세요.');
@@ -374,14 +423,17 @@ async function importCapture(capture, options) {
     figma.notify(`${capture.nodes.length}개 편집 가능한 레이어를 가져왔습니다.`);
     // Return bounded evidence from the actual created nodes. Clients can verify
     // editability without walking the same large layer tree after every import.
-    const created = [...byId.values()].map(item => item.target);
+    const created = [...new Set([...byId.values()].map(item => item.target).concat(componentNodes))].filter(node=>!node.removed);
+    const survivingComponents = new Set(componentNodes.filter(node=>!node.removed).map(node=>node.id));
+    structure.components = structure.components.filter(item=>survivingComponents.has(item.id));
+    structure.componentCount = structure.components.length;
     const types = {};
     for (const node of created) types[node.type] = (types[node.type] || 0) + 1;
     const textSamples = created.filter(node => node.type === 'TEXT')
       .sort((a, b) => b.characters.length - a.characters.length).slice(0, 4)
       .map(node => ({ id: node.id, text: node.characters.slice(0, 120) }));
     const result = { nodeId: stage.id, editableRootId: root.id, pageId: importPage.id, count: capture.nodes.length,
-      nativeSummary: { types, textSamples, ...structure }, warnings: [...warnings] };
+      nativeSummary: { types, textSamples, ...structure, ...reuse, prototypeLinks }, warnings: [...warnings] };
     if (captureKey) stage.setPluginData('layerBridgeResult', JSON.stringify(result));
     if (collection && capture.source.presentation) {
       const plan = { ...capture.source.presentation, screenId: capture.source.screenId, cropNative: false };
@@ -513,8 +565,14 @@ function base64(data) {
 }
 async function executeCommand(operation, payload = {}) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('명령 데이터가 올바르지 않습니다.');
-  if (['import_capture', 'update_node'].includes(operation) && payload.expectedPageId && payload.expectedPageId !== figma.currentPage.id) throw new Error('연결한 페이지가 변경되었습니다. 원하는 페이지에서 플러그인을 다시 연결하세요.');
+  if (['import_capture', 'update_node', 'prepare_site'].includes(operation) && payload.expectedPageId && payload.expectedPageId !== figma.currentPage.id) throw new Error('연결한 페이지가 변경되었습니다. 원하는 페이지에서 플러그인을 다시 연결하세요.');
   if (operation === 'import_capture') return importCapture(payload.capture, payload.options || {});
+  if(operation==='prepare_site'){
+    if(!/^[-a-zA-Z0-9_]{1,100}$/.test(payload.collectionId)||typeof payload.title!=='string')throw Error('Invalid collection');
+    let page=figma.root.children.find(p=>p.getPluginData('figmaizeSite')===payload.collectionId);
+    if(!page){page=figma.createPage();page.name='Site / '+payload.title.slice(0,100);page.setPluginData('figmaizeSite',payload.collectionId);}
+    await figma.setCurrentPageAsync(page);return {document:documentInfo()};
+  }
   if (operation === 'get_document') return documentInfo();
   if (operation === 'get_selection') {
     const budget = { left: 200 }, nodes = [];

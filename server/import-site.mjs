@@ -3,7 +3,7 @@ import path from 'node:path';
 import {readFile,writeFile,rename,open,unlink} from 'node:fs/promises';
 import {ensureBridge,requestBridge} from './client.mjs';
 const save=async(file,value)=>{await writeFile(file+'.tmp',JSON.stringify(value,null,2));await rename(file+'.tmp',file);};
-export async function importSite(manifestPath,sessionId,{onProgress=()=>{},bridge={ensureBridge,requestBridge}}={}){
+export async function importSite(manifestPath,sessionId,{onProgress=()=>{},bridge={ensureBridge,requestBridge},shouldCancel=async()=>false,options={}}={}){
   const {ensureBridge:ensure,requestBridge:request}=bridge;
   manifestPath=path.resolve(manifestPath);const directory=path.dirname(manifestPath),journalPath=path.join(directory,'figma-import.json'),lockPath=journalPath+'.lock';
   // Only one process may submit mutations for this collection at a time.
@@ -17,8 +17,9 @@ export async function importSite(manifestPath,sessionId,{onProgress=()=>{},bridg
     const compact=await planCompactSite(manifestPath);const plans=new Map(compact.plans.map(p=>[p.screenId,p]));
     try{journal=JSON.parse(await readFile(journalPath,'utf8'));if(journal.pageId!==chosen.document.pageId||journal.documentName!==chosen.document.name)throw Error('Collection import target differs from the recorded Figma document/page');}
     catch(e){if(e.code!=='ENOENT')throw e;journal={collectionId:manifest.id,pageId:chosen.document.pageId,documentName:chosen.document.name,entries:[]};}
-    journal.status='running';journal.pid=process.pid;await save(journalPath,journal);
+    journal.status='running';delete journal.error;delete journal.finishedAt;journal.pid=process.pid;await save(journalPath,journal);
     for(const screen of manifest.screens.filter(s=>['captured','imported'].includes(s.status))){
+      if(await shouldCancel()){journal.status='cancelled';await save(journalPath,journal);return {journalPath,journal};}
       let entry=journal.entries.find(e=>e.screenId===screen.id);if(entry?.status==='complete')continue;
       if(entry?.status==='unknown'||entry?.status==='blocked')throw Error('Unresolved mutation '+entry.screenId+'; inspect Figma before retrying');
       if(!entry){entry={screenId:screen.id,label:screen.label,status:'not-submitted'};journal.entries.push(entry);}
@@ -30,7 +31,7 @@ export async function importSite(manifestPath,sessionId,{onProgress=()=>{},bridg
         if(plan)capture.source={...capture.source,presentation:plan};
         entry.status='submitting';await save(journalPath,journal);
         let job;
-        try{job=await request('/v1/commands',{method:'POST',body:{operation:'import_capture',sessionId,payload:{capture,options:{reference:false}}},timeout:30000});}
+        try{job=await request('/v1/commands',{method:'POST',body:{operation:'import_capture',sessionId,payload:{capture,options:{reference:false,...options}}},timeout:30000});}
         catch(error){entry.status='unknown';entry.error=error.message;await save(journalPath,journal);throw error;}
         entry.jobId=job.id;entry.status=job.status;await save(journalPath,journal);
       }

@@ -1,10 +1,25 @@
 <!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
 *{box-sizing:border-box}body{margin:0;padding:24px;font:12px/1.65 Inter,-apple-system,BlinkMacSystemFont,sans-serif;background:var(--figma-color-bg,#fbfcf9);color:var(--figma-color-text,#25362b)}.brand{font-size:16px;font-weight:650;color:#4c825e}.badge{float:right;font-size:9px;letter-spacing:1.5px;color:#8b978b;margin-top:5px}h1{font-size:25px;letter-spacing:-.9px;line-height:1.45;margin:24px 0 10px}p{color:var(--figma-color-text-secondary,#809079);font-size:11px}.connection{border:1px solid #879b8033;border-radius:10px;padding:15px;margin-top:20px}.state{display:flex;align-items:center;gap:8px;font-weight:600;font-size:12px}.dot{width:7px;height:7px;border-radius:50%;background:#b0b9ac}.online{background:#5caa72}#document{font-size:10px;margin-top:7px;word-break:break-all;color:var(--figma-color-text-secondary,#7a8772)}label{display:block;font-size:10px;color:var(--figma-color-text-secondary,#7a8772);margin-top:19px}input[type=password]{display:block;width:100%;border:1px solid #91a38655;border-radius:6px;padding:10px;margin-top:5px;background:var(--figma-color-bg-secondary,#f6f8f2);color:var(--figma-color-text,#25362b)}button{width:100%;padding:11px;border:0;border-radius:7px;background:#3b714d;color:white;font:inherit;font-weight:600;margin-top:12px;cursor:pointer}button:disabled{opacity:.45;cursor:default}#disconnect{background:#879b8022;color:var(--figma-color-text,#446747)}#status{margin-top:15px;font-size:11px;word-break:break-word;white-space:pre-wrap}#warnings{font-size:10px;max-height:90px;overflow:auto;padding-left:16px;color:var(--figma-color-text-secondary,#7a8772)}details{border-top:1px solid #91a38633;padding-top:14px;margin-top:23px;font-size:10px;color:var(--figma-color-text-secondary,#7a8772)}summary{cursor:pointer}input[type=file]{width:100%;margin:12px 0;font-size:10px}.foot{font-size:9px;margin-top:22px;color:var(--figma-color-text-secondary,#8b9684)}[hidden]{display:none!important}
-</style><body><div class="brand">▧ &nbsp; figmaize <span class="badge">MCP BRIDGE</span></div><h1>대화에서 요청하고,<br>피그마에서 바로 확인.</h1><p>MCP와 연결하면 이 파일의 레이어를 만들고,<br>선택한 요소를 읽고 수정할 수 있습니다.</p>
+section{margin-top:22px;border-top:1px solid #8884;padding-top:10px}h2{font-size:14px}input[type=url],input[type=number],select{display:block;width:100%;padding:8px;margin-top:4px;border:1px solid #8885;border-radius:6px;background:var(--figma-color-bg-secondary,#f6f8f2);color:inherit}.row{display:flex;gap:10px;align-items:end}.row>*{flex:1;min-width:0}#page-list{max-height:150px;overflow:auto;word-break:break-all}#page-list label{margin:6px 0}#site-status{margin:12px 0;white-space:pre-wrap;word-break:break-word;font-size:11px}label:has(input[type=checkbox]){margin-top:8px}
+</style><body><div class="brand">▧ &nbsp; figmaize <span class="badge">LOCAL CAPTURE</span></div><h1>웹 화면을,<br>편집 가능한 디자인으로.</h1><p>URL로 수집하고 페이지 안에 메뉴·버튼 상태를 정리합니다.<br>MCP 없이도 사용할 수 있습니다.</p>
 <div class="connection"><div class="state"><span id="dot" class="dot"></span><span id="state">연결 대기</span></div><div id="document">현재 파일과 페이지에 연결합니다.</div></div>
-<label for="token">로컬 연결 코드<input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="start.command에서 표시된 코드"></label><button id="connect">MCP 브리지 연결</button><button id="disconnect" hidden>연결 해제</button><div id="status" role="status" aria-live="polite">이 창을 열어두면 MCP 요청이 캔버스에 반영됩니다.</div><ul id="warnings"></ul>
+<label for="token">로컬 연결 코드<input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="setup에서 표시된 코드"></label><button id="connect">로컬 수집기 연결</button><button id="disconnect" hidden>연결 해제</button><div id="status" role="status" aria-live="polite">수집기를 연결하면 URL로 화면을 가져올 수 있습니다.</div><ul id="warnings"></ul>
+<section id="site-panel"><h2>웹사이트 가져오기</h2>
+<label>사이트 URL<input id="site-url" type="url" placeholder="https://example.com" autocomplete="off"></label>
+<div class="row"><label>범위<select id="scope"><option value="page">현재 페이지</option><option value="selected">선택한 페이지</option><option value="site">사이트 전체</option></select></label><button id="site-discover">페이지 찾기</button></div>
+<div id="page-list"></div><div class="row"><label>너비<input id="site-width" type="number" value="1440" min="240" max="3840"></label><label>높이<input id="site-height" type="number" value="1000" min="240" max="3840"></label></div>
+<div class="row"><label>최대 페이지<input id="page-limit" type="number" value="5" min="1" max="250"></label><label>최대 화면<input id="screen-limit" type="number" value="40" min="1" max="1000"></label></div>
+<label><input id="site-actions" type="checkbox" checked> 메뉴·탭·팝업 포함</label><label><input id="site-scroll" type="checkbox" checked> 스크롤 본문 포함</label>
+<button id="site-start">사이트 수집</button>
+<h2>수집한 사이트</h2><select id="collections" aria-label="수집한 사이트"></select><button id="site-refresh">목록 새로고침</button>
+<label><input id="new-page" type="checkbox" checked> 사이트 전용 Figma 페이지에 만들기</label>
+<label><input id="reuse-components" type="checkbox"> 동일 버튼을 공유 컴포넌트로 묶기</label>
+<label><input id="make-variants" type="checkbox"> 동일 요소의 다른 상태를 Variant로 묶기</label>
+<label><input id="make-prototype" type="checkbox"> 확인된 상태 이동을 프로토타입으로 연결</label>
+<button id="site-import" disabled>피그마에 가져오기</button><div class="row"><button id="site-cancel" disabled>중단</button><button id="site-resume" disabled>수집 이어하기</button></div>
+<div id="site-status" role="status" aria-live="polite">수집기를 연결하고 URL을 입력하세요.</div></section>
 <details><summary>백업 JSON 파일 직접 가져오기</summary><input id="file" type="file" accept=".json"><label><input id="reference" type="checkbox" checked> 원본 스크린샷도 함께 배치</label><button id="import" disabled>파일에서 레이어 생성</button></details>
-<p class="foot">연결: localhost:4318 · 연결 코드는 이 창에만 유지됩니다.<br>웹 화면은 브라우저 확장 또는 MCP의 URL 수집으로 보낼 수 있습니다.</p>
+<p class="foot">연결: localhost:4318 · 연결 코드는 이 창에만 유지됩니다.<br>브라우저 확장과 MCP로도 화면을 보낼 수 있습니다.</p>
 <script>window.addEventListener('error',function(event){document.querySelector('#status').textContent='플러그인 UI 오류: '+event.message;});</script><script>(function (scope) {
   'use strict';
   const VERSION = 1;
@@ -28,6 +43,7 @@
       ids.add(node.id);
       kinds.set(node.id, node.type);
       if (typeof node.name !== 'string') throw new Error('레이어 이름이 올바르지 않습니다.');
+      if (node.selector !== undefined && (typeof node.selector !== 'string' || node.selector.length > 4096)) throw new Error('요소 선택자가 올바르지 않습니다.');
       const b = node.bounds;
       if (!b || !['x', 'y', 'width', 'height'].every(k => Number.isFinite(b[k])) || b.width <= 0 || b.height <= 0 || b.width > 100000 || b.height > 100000 || Math.abs(b.x) > 1000000 || Math.abs(b.y) > 1000000) throw new Error('레이어 좌표가 올바르지 않습니다.');
       if (node.type === 'text' && (typeof node.text !== 'string' || node.text.length > 100000)) throw new Error('텍스트 데이터가 올바르지 않습니다.');
@@ -91,7 +107,7 @@ function controls() {
   $('#file').disabled = busy || !!sessionId;
   $('#import').disabled = !capture || busy || !!sessionId;
   $('#dot').classList.toggle('online', !!sessionId);
-  $('#state').textContent = sessionId ? busy ? '피그마 작업 중' : 'MCP 연결됨' : connecting ? '연결 중…' : '연결 대기';
+  $('#state').textContent = sessionId ? busy ? '피그마 작업 중' : '수집기 연결됨' : connecting ? '연결 중…' : '연결 대기';
 }
 function warnings(items = []) {
   $('#warnings').replaceChildren();
@@ -109,7 +125,7 @@ function pluginCommand(id, operation, payload = {}, timeoutMs = 0) {
   });
 }
 async function api(path, method = 'GET', body) {
-  const response = await fetch(BASE + path, { method, headers: { Authorization: 'Bearer ' + activeToken, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(12000) });
+  const response = await fetch(BASE + path, { method, headers: { Authorization: 'Bearer ' + activeToken, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(path==='/v1/sites/discover'?30000:12000) });
   const result = await response.json();
   if (!response.ok) { const error = new Error(result.error || `HTTP ${response.status}`); error.status = response.status; throw error; }
   return result;
@@ -138,6 +154,7 @@ async function poll(connectedSession) {
       }
       busy = false; controls();
       if (delivered) {
+        if(job.operation==='prepare_site'&&delivery.ok)$('#document').textContent=delivery.result.document.pageName;
         $('#status').textContent = delivery.ok ? `완료 · ${job.operation}${delivery.result?.count !== undefined ? ' · ' + delivery.result.count + '개 레이어' : ''}` : '작업 실패 · ' + delivery.error;
         warnings(delivery.result?.warnings || []);
       }
@@ -163,6 +180,7 @@ $('#connect').onclick = async () => {
     $('#document').textContent = `${document.name} · ${document.pageName}`;
     $('#status').textContent = '연결되었습니다. MCP 또는 Chrome 확장에서 이 피그마로 화면을 보내세요.';
     void poll(sessionId);
+    if(typeof refreshCollections==='function')void refreshCollections().catch(error=>siteStatus(error.message));
   } catch (error) { $('#status').textContent = '연결 실패: ' + error.message + '\nstart.command로 서버를 실행했는지 확인하세요.'; }
   finally { connecting = false; controls(); }
 };
@@ -199,4 +217,44 @@ window.onmessage = event => {
 controls();
 
 $('#status').textContent = '준비 완료. 연결 코드를 입력하고 MCP 브리지 연결을 누르세요.';
+</script><script>// Shared authenticated API; no MCP client is required for this interface.
+let activeCollection=null,siteWatching=false,siteWatchAgain=false;
+const siteStatus=text=>{$('#site-status').textContent=text;};
+async function refreshCollections(){
+ if(!sessionId)return;const {collections}=await api('/v1/sites');const select=$('#collections');select.replaceChildren();
+ for(const item of collections){const option=document.createElement('option');option.value=item.manifestPath;option.textContent=`${item.url} · ${item.imported}/${(item.screens.captured||0)+(item.screens.imported||0)}`;select.append(option);}
+ if(activeCollection)select.value=activeCollection;else if(collections.length){activeCollection=collections.at(-1).manifestPath;select.value=activeCollection;}
+}
+function siteInput(){return {url:$('#site-url').value.trim(),mode:$('#scope').value,width:Number($('#site-width').value),height:Number($('#site-height').value),maxPages:Number($('#page-limit').value),maxScreens:Number($('#screen-limit').value),scroll:$('#site-scroll').checked,interactions:$('#site-actions').checked,selectedUrls:[...document.querySelectorAll('#page-list input:checked')].map(el=>el.value)};}
+async function watchCollection(){
+ if(siteWatching){siteWatchAgain=true;return;}siteWatching=true;siteWatchAgain=false;
+ try{while(sessionId&&activeCollection){
+  const item=activeCollection;let status;
+  try{status=await api('/v1/sites/status?manifestPath='+encodeURIComponent(item));}catch(error){siteStatus(error.message);break;}
+  if(item!==activeCollection)continue;
+  siteStatus(`수집 ${status.pages}페이지 · ${status.screens.captured||0}화면 / 피그마 완료 ${status.imported}\n${status.cancelRequested&&(status.capturing||status.importing)?'현재 작업 후 중단합니다.':status.capturing?'수집 중':status.importing?'피그마에 만드는 중':status.captureStatus+' · '+status.importStatus}${status.error?'\n'+status.error:''}${status.limitReached?'\n선택한 수집 한도에 도달했습니다.':''}`);
+  $('#site-import').disabled=status.capturing||status.importing||!status.screens.captured;
+  $('#site-cancel').disabled=!status.capturing&&!status.importing;
+  $('#site-resume').disabled=status.capturing||status.importing;
+  if(!status.capturing&&!status.importing){await refreshCollections();break;}
+  await pause(1500);
+ }}finally{siteWatching=false;if(siteWatchAgain)void watchCollection();}
+}
+async function siteAction(fn){try{if(!sessionId)throw Error('먼저 로컬 수집기에 연결하세요.');await fn();}catch(error){siteStatus(error.message);}}
+$('#site-discover').onclick=()=>siteAction(async()=>{
+ siteStatus('시작 페이지의 링크를 찾고 있습니다…');const result=await api('/v1/sites/discover','POST',{url:$('#site-url').value.trim()});$('#page-list').replaceChildren();
+ for(const page of result.pages){const label=document.createElement('label'),checkbox=document.createElement('input'),text=document.createElement('span');checkbox.type='checkbox';checkbox.value=page.url;checkbox.checked=true;text.textContent=page.label+' — '+page.url;label.append(checkbox,text);$('#page-list').append(label);}
+ $('#scope').value='selected';siteStatus(`${result.pages.length}개 링크를 찾았습니다. 가져올 페이지를 선택하세요.`);
+});
+$('#site-start').onclick=()=>siteAction(async()=>{
+ $('#site-start').disabled=true;try{const result=await api('/v1/sites/start','POST',siteInput());activeCollection=result.manifestPath;await refreshCollections();void watchCollection();}finally{$('#site-start').disabled=false;}
+});
+$('#site-import').onclick=()=>siteAction(async()=>{
+ if(!activeCollection)throw Error('수집 결과를 선택하세요.');
+ await api('/v1/sites/import','POST',{manifestPath:activeCollection,sessionId,options:{newPage:$('#new-page').checked,reuseComponents:$('#reuse-components').checked,variants:$('#make-variants').checked,prototype:$('#make-prototype').checked}});void watchCollection();
+});
+$('#site-cancel').onclick=()=>siteAction(async()=>{await api('/v1/sites/cancel','POST',{manifestPath:activeCollection});siteStatus('중단 요청을 저장했습니다. 실행 중인 피그마 작업의 결과를 기다립니다.');});
+$('#site-resume').onclick=()=>siteAction(async()=>{await api('/v1/sites/resume','POST',{manifestPath:activeCollection,maxPages:Number($('#page-limit').value),maxScreens:Number($('#screen-limit').value)});void watchCollection();});
+$('#site-refresh').onclick=()=>siteAction(async()=>{await refreshCollections();void watchCollection();});
+$('#collections').onchange=()=>{activeCollection=$('#collections').value;void watchCollection();};
 </script></body></html>

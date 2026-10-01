@@ -131,6 +131,10 @@
       }
       flush();
     }
+    function stableSelector(el){
+      if(el.id&&document.querySelectorAll('#'+CSS.escape(el.id)).length===1)return '#'+CSS.escape(el.id);
+      const parts=[];for(let p=el;p&&p!==document.documentElement;p=p.parentElement){let i=1;for(let s=p.previousElementSibling;s;s=s.previousElementSibling)if(s.tagName===p.tagName)i++;parts.unshift(p.tagName.toLowerCase()+':nth-of-type('+i+')');}return 'html > '+parts.join(' > ');
+    }
     function walk(el, parentId, clip, depth) {
       if (nodes.length >= MAX || visited++ > 20000 || depth > 80) { warnings.add('화면 복잡도 제한으로 일부 요소가 생략되었습니다.'); return; }
       if (!(el instanceof Element) || ['SCRIPT', 'STYLE', 'NOSCRIPT', 'LINK', 'META', 'HEAD'].includes(el.tagName)) return;
@@ -144,6 +148,7 @@
       const style = styleOf(s);
       const node = { type: 'frame', parentId, name, bounds: bounds(rect), style, source: 'dom', clip: /hidden|clip|scroll|auto/.test(`${s.overflowX} ${s.overflowY}`) };
       node.semantic = semantics(el);
+      if(node.semantic?.component)node.selector=stableSelector(el);
       node.layout = layoutOf(s);
       node.flow = { position: s.position, grow: Math.max(0, num(s.flexGrow)), align: s.alignSelf,
         margin: [s.marginTop, s.marginRight, s.marginBottom, s.marginLeft].map(num) };

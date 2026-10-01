@@ -3,12 +3,17 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 const schema=await readFile(new URL('../shared/schema.js',import.meta.url),'utf8');
+const components=await readFile(new URL('../figma/components.js',import.meta.url),'utf8');
 const code=await readFile(new URL('../figma/importer.js',import.meta.url),'utf8');
 function harness(failFont=false){
   const nodes=[],messages=[];
   class Node{
     constructor(type){this.id='node:'+nodes.length;this.type=type;this.name=type;this.children=[];this.width=100;this.height=100;this.x=0;this.y=0;this.fills=[];this.cornerRadius=0;this.data={};this.characters='';this.resizeCalls=[];nodes.push(this);}
-    appendChild(n){if(!['FRAME','PAGE','COMPONENT'].includes(this.type))throw new Error('Cannot append to '+this.type);if(n.type==='COMPONENT')for(let p=this;p;p=p.parent)if(p.type==='COMPONENT')throw new Error('Nested main components are forbidden');if(n.parent)n.parent.children=n.parent.children.filter(c=>c!==n);this.children.push(n);n.parent=this;}
+    appendChild(n){if(!['FRAME','PAGE','COMPONENT','COMPONENT_SET','INSTANCE'].includes(this.type))throw new Error('Cannot append to '+this.type);if(n.type==='COMPONENT')for(let p=this;p;p=p.parent)if(p.type==='COMPONENT')throw new Error('Nested main components are forbidden');if(n.parent)n.parent.children=n.parent.children.filter(c=>c!==n);this.children.push(n);n.parent=this;}
+    findAll(predicate){return this.children.flatMap(n=>[...(predicate(n)?[n]:[]),...n.findAll(predicate)]);}
+    insertChild(index,n){this.appendChild(n);this.children.splice(this.children.indexOf(n),1);this.children.splice(index,0,n);}
+    createInstance(){const n=new Node('INSTANCE');n.mainComponent=this;n.resize(this.width,this.height);return n;}
+    async setReactionsAsync(reactions){this.reactions=reactions;}
     addComponentProperty(name,type,defaultValue){this.componentPropertyDefinitions||={};const key=name+'#'+this.id;this.componentPropertyDefinitions[key]={type,defaultValue};return key;}
     resize(w,h){if(w<=0||h<=0)throw new Error('Invalid size');this.resizeCalls.push([w,h]);this.width=w;this.height=h;}
     set textAutoResize(mode){this._textAutoResize=mode;if(mode==='WIDTH_AND_HEIGHT'){this.width=this.characters.length*this.fontSize*.6;this.height=this.lineHeight?.value||this.fontSize*1.2;}}
@@ -24,7 +29,10 @@ function harness(failFont=false){
   const create=type=>()=>{const n=new Node(type);page.appendChild(n);return n;};
   const figma={root:{name:'Test file',children:[page]},currentPage:page,mixed:Symbol('mixed'),getNodeByIdAsync:async id=>nodes.find(n=>n.id===id),showUI(){},ui:{postMessage:m=>messages.push(m)},viewport:{center:{x:0,y:0},scrollAndZoomIntoView(){}},notify(){},listAvailableFontsAsync:async()=>[{fontName:{family:'Inter',style:'Regular'}}],loadFontAsync:async()=>{if(failFont)throw new Error('Font unavailable');},createFrame:create('FRAME'),createRectangle:create('RECTANGLE'),createText:create('TEXT'),createNodeFromSvg:create('FRAME'),createImage:data=>({hash:'image-'+data.length})};
   figma.createComponent=create('COMPONENT');
-  vm.runInNewContext(schema+'\n'+code,{figma,__html__:'',setTimeout,Uint8Array,console});return {figma,nodes,messages,page};
+  figma.createPage=()=>{const p=new Node('PAGE');figma.root.children.push(p);return p;};
+  figma.setCurrentPageAsync=async p=>{figma.currentPage=p;};
+  figma.combineAsVariants=(components,parent)=>{const set=new Node('COMPONENT_SET');parent.appendChild(set);for(const n of components)set.appendChild(n);return set;};
+  vm.runInNewContext(schema+'\n'+components+'\n'+code,{figma,__html__:'',setTimeout,Uint8Array,console});return {figma,nodes,messages,page};
 }
 const scene=()=>({format:'layer-bridge',version:1,title:'Test',viewport:{width:390,height:844},warnings:[],nodes:[{id:'card',type:'frame',name:'Card',parentId:null,bounds:{x:20,y:40,width:300,height:200},style:{background:'#ffffff'}},{id:'title',type:'text',name:'Title',parentId:'card',text:'편집 가능한 제목',bounds:{x:36,y:56,width:240,height:30},style:{fontFamily:'Unknown',fontSize:20,color:'#202623'}}]});
 test('import creates editable text and preserves relative coordinates',async()=>{const h=harness();await h.figma.ui.onmessage({type:'import',capture:scene(),options:{}});const text=h.nodes.find(n=>n.type==='TEXT');assert.equal(text.characters,'편집 가능한 제목');assert.equal(text.x,16);assert.equal(text.y,16);assert.equal(text.parent.name,'Card');assert.equal(h.page.children.length,1);assert.equal(h.messages.at(-1).type,'complete');assert.match(h.messages.at(-1).warnings.join(' '),/대체 폰트/);});
@@ -152,4 +160,38 @@ test('reorganizing a pre-cropped new import does not crop it twice',async()=>{
  const stage=h.nodes.find(n=>n.id===r.result.nodeId),root=stage.children[0];assert.equal(root.x,0);
  await command(h,'reorganize','import_capture',{capture:v,options:{organizeCollection:{id:'site-new',plans:[plan]}}});
  assert.equal(root.x,0);assert.equal(root.y,0);assert.equal(stage.width,200);
+});
+
+function controlScene(index,{label='Save',collection='reuse-test',selector='#save'}={}){
+ const v=scene();v.nodes[0].semantic={kind:'button',label,component:true};v.nodes[0].selector=selector;v.nodes[1].text=label;
+ v.source={url:'https://example.com',collection:{id:collection,index},screenId:'screen-'+index};return v;
+}
+test('shared instances retain one editable master and never share across sites',async()=>{
+ const h=harness();
+ for(let i=0;i<2;i++){const r=await command(h,'reuse-'+i,'import_capture',{capture:controlScene(i),options:{reuseComponents:true}});assert.equal(r.ok,true);assert.equal(r.result.nativeSummary.instanceCount,i);}
+ assert.equal(h.page.findAll(n=>n.type==='COMPONENT').length,1);assert.equal(h.page.findAll(n=>n.type==='INSTANCE').length,1);
+ const master=h.page.findAll(n=>n.type==='COMPONENT')[0];master.children[0].characters='User edit';
+ await command(h,'reuse-3','import_capture',{capture:controlScene(2),options:{reuseComponents:true}});assert.equal(master.children[0].characters,'User edit');
+ await command(h,'other-site','import_capture',{capture:controlScene(0,{collection:'other-site'}),options:{reuseComponents:true}});assert.equal(h.page.findAll(n=>n.type==='COMPONENT').length,2);
+});
+test('only changed versions of the same control form a native variant set',async()=>{
+ const h=harness();
+ await command(h,'first-state','import_capture',{capture:controlScene(0),options:{variants:true}});
+ const reply=await command(h,'second-state','import_capture',{capture:controlScene(1,{label:'Saved'}),options:{variants:true}});assert.equal(reply.ok,true);assert.equal(reply.result.nativeSummary.variantSets,1);
+ const set=h.page.findAll(n=>n.type==='COMPONENT_SET')[0];assert.deepEqual(set.children.map(n=>n.name),['State=1','State=2']);assert.equal(h.page.findAll(n=>n.type==='INSTANCE').length,2);
+ await command(h,'third-state','import_capture',{capture:controlScene(2,{label:'Saving'}),options:{variants:true}});assert.equal(set.children.length,3);
+ await command(h,'different-control','import_capture',{capture:controlScene(3,{label:'Cancel',selector:'#cancel'}),options:{variants:true}});assert.equal(set.children.length,3);
+});
+test('prototype connections require an unambiguous captured selector and preserve reactions',async()=>{
+ const h=harness();await command(h,'base','import_capture',{capture:controlScene(0)});
+ const v=controlScene(1,{label:'Saved'});v.source.actions=[{type:'click',selector:'#save'}];v.source.presentation={baseScreenId:'screen-0',url:v.source.url,pageLabel:'Home',family:'States',label:'Saved',crop:{x:0,y:0,width:390,height:844}};
+ const r=await command(h,'state','import_capture',{capture:v,options:{prototype:true}});assert.equal(r.ok,true);assert.equal(r.result.nativeSummary.prototypeLinks,1);
+ const button=h.page.findAll(n=>n.type==='COMPONENT')[0];assert.equal(button.reactions[0].actions[0].destinationId,r.result.nodeId);
+ v.source.screenId='screen-2';v.source.collection.index=2;const again=await command(h,'state-2','import_capture',{capture:v,options:{prototype:true}});assert.equal(again.result.nativeSummary.prototypeLinks,0);assert.equal(button.reactions.length,1);
+});
+test('site pages are idempotent per collection and preserve existing pages',async()=>{
+ const h=harness(),original=h.page;const a=await command(h,'prepare-a','prepare_site',{collectionId:'site-a',title:'example.com'});assert.equal(a.ok,true);
+ const page=h.figma.currentPage;assert.notEqual(page,original);assert.equal(page.name,'Site / example.com');
+ await command(h,'prepare-a-again','prepare_site',{collectionId:'site-a',title:'example.com'});assert.equal(h.figma.currentPage,page);assert.equal(h.figma.root.children.length,2);
+ await command(h,'prepare-b','prepare_site',{collectionId:'site-b',title:'other.test'});assert.equal(h.figma.root.children.length,3);assert.ok(h.figma.root.children.includes(original));
 });

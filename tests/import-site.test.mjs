@@ -25,3 +25,8 @@ test('interrupted submission without a job ID blocks automatic resubmission',asy
  await assert.rejects(importSite(f.manifest,'session',{bridge:f.bridge}),/interrupted/);assert.ok(!f.calls.includes('/v1/commands'));
  assert.equal(JSON.parse(await readFile(f.journal)).entries[0].status,'unknown');
 });
+
+test('cancel stops before submission and resume imports exactly once',async t=>{
+ const f=await fixture(t);const stopped=await importSite(f.manifest,'session',{bridge:f.bridge,shouldCancel:async()=>true});assert.equal(stopped.journal.status,'cancelled');assert.ok(!f.calls.includes('/v1/commands'));
+ await importSite(f.manifest,'session',{bridge:f.bridge});assert.equal(f.calls.filter(c=>c==='/v1/commands').length,1);
+});

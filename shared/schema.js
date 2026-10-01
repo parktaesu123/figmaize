@@ -21,6 +21,7 @@
       ids.add(node.id);
       kinds.set(node.id, node.type);
       if (typeof node.name !== 'string') throw new Error('레이어 이름이 올바르지 않습니다.');
+      if (node.selector !== undefined && (typeof node.selector !== 'string' || node.selector.length > 4096)) throw new Error('요소 선택자가 올바르지 않습니다.');
       const b = node.bounds;
       if (!b || !['x', 'y', 'width', 'height'].every(k => Number.isFinite(b[k])) || b.width <= 0 || b.height <= 0 || b.width > 100000 || b.height > 100000 || Math.abs(b.x) > 1000000 || Math.abs(b.y) > 1000000) throw new Error('레이어 좌표가 올바르지 않습니다.');
       if (node.type === 'text' && (typeof node.text !== 'string' || node.text.length > 100000)) throw new Error('텍스트 데이터가 올바르지 않습니다.');

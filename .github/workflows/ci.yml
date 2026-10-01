@@ -6,15 +6,34 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node: [22, 24]
+        include:
+          - { os: ubuntu-22.04, node: 22 }
+          - { os: ubuntu-22.04, node: 24 }
+          - { os: macos-latest, node: 22 }
+          - { os: windows-latest, node: 22 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - run: node scripts/build.mjs
+          cache: npm
+      - run: npm ci
+      - run: npm run build
       - run: git diff --exit-code -- figma/code.js figma/ui.html
-      - run: node --test tests/*.test.mjs extension/*.test.mjs
+      - run: npm test
+      - run: npm pack --dry-run
+  browser:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:browser

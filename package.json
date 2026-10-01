@@ -1,7 +1,7 @@
 {
   "name": "figmaize",
-  "version": "0.2.0",
-  "private": true,
+  "version": "0.3.0-alpha.1",
+  "private": false,
   "description": "Direct Figma canvas bridge for MCP clients and browser captures",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -9,24 +9,41 @@
     "mcp": "node server/mcp.mjs",
     "connection": "node scripts/connection.mjs",
     "workbench:legacy": "node scripts/serve.mjs",
-    "test": "node --test tests/*.test.mjs extension/*.test.mjs"
+    "test": "node scripts/test.mjs",
+    "doctor": "node bin/figmaize.mjs doctor",
+    "release:plugin": "node scripts/release-plugin.mjs",
+    "test:browser": "node scripts/test-browser.mjs",
+    "prepack": "node scripts/build.mjs --quiet"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "files": [
     "server/",
     "shared/",
     "figma/",
-    "extension/",
-    "scripts/",
     "examples/demo.html",
     "examples/demo.layerbridge.json",
     "README.md",
     "CONTRIBUTING.md",
     "docs/open-source-plan.md",
     "examples/toss/README.md",
-    "LICENSE"
+    "LICENSE",
+    "bin/",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "scripts/build.mjs",
+    "scripts/capture-site.mjs",
+    "scripts/compact-site.mjs",
+    "scripts/connection.mjs",
+    "scripts/import-site.mjs",
+    "scripts/release-plugin.mjs",
+    "scripts/site-report.mjs",
+    "scripts/site-worker.mjs",
+    "extension/manifest.json",
+    "extension/collector.js",
+    "extension/popup.html",
+    "extension/popup.js"
   ],
   "license": "MIT",
   "repository": {
@@ -36,5 +53,11 @@
   "bugs": {
     "url": "https://github.com/parktaesu123/figmaize/issues"
   },
-  "homepage": "https://github.com/parktaesu123/figmaize#readme"
+  "homepage": "https://github.com/parktaesu123/figmaize#readme",
+  "bin": {
+    "figmaize": "bin/figmaize.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
 }

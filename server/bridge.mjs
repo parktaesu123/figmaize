@@ -4,9 +4,9 @@ import { pathToFileURL } from 'node:url';
 import { PORT, getToken } from './config.mjs';
 import '../shared/schema.js';
 
-const OPERATIONS = new Set(['import_capture','get_document','get_selection','inspect_node','update_node','export_png']);
+const OPERATIONS = new Set(['import_capture','get_document','get_selection','inspect_node','update_node','export_png','prepare_site']);
 const LIMIT = 50 * 1024 * 1024;
-export function createBridge({ token, now = Date.now, sessionTTL = 45000, jobTTL = 120000 } = {}) {
+export function createBridge({ token, now = Date.now, sessionTTL = 45000, jobTTL = 120000, siteService } = {}) {
   if (!token || token.length < 24) throw new Error('A pairing token of at least 24 characters is required');
   const sessions = new Map(), jobs = new Map();
   const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -35,11 +35,12 @@ export function createBridge({ token, now = Date.now, sessionTTL = 45000, jobTTL
     if (!OPERATIONS.has(operation)) throw fail('허용되지 않은 피그마 작업입니다.');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw fail('작업 데이터가 올바르지 않습니다.');
     const s = chooseSession(sessionId);
-    if (['import_capture','update_node'].includes(operation) && [...jobs.values()].some(j=>j.sessionId===s.id&&j.status==='unknown')) throw fail('이 연결에 결과를 확인하지 못한 작업이 있습니다. 캔버스를 조회해 확인하고 플러그인을 다시 연결한 뒤 수정하세요.',409);
+    if (['import_capture','update_node','prepare_site'].includes(operation) && [...jobs.values()].some(j=>j.sessionId===s.id&&j.status==='unknown')) throw fail('이 연결에 결과를 확인하지 못한 작업이 있습니다. 캔버스를 조회해 확인하고 플러그인을 다시 연결한 뒤 수정하세요.',409);
     if ([...jobs.values()].filter(j => ['queued','running'].includes(j.status)).length >= 20) throw fail('대기 중인 작업이 너무 많습니다.', 429);
+    if(operation==='prepare_site'&&(typeof payload.collectionId!=='string'||!/^[-a-zA-Z0-9_]{1,100}$/.test(payload.collectionId)||typeof payload.title!=='string'||payload.title.length>200))throw fail('Invalid site target');
     if (operation === 'import_capture') globalThis.LayerBridge.validateCapture(payload.capture);
     if (['inspect_node','update_node','export_png'].includes(operation) && (typeof payload.nodeId !== 'string' || !payload.nodeId)) throw fail('nodeId가 필요합니다.');
-    if (['import_capture','update_node'].includes(operation)) payload.expectedPageId = s.document.pageId;
+    if (['import_capture','update_node','prepare_site'].includes(operation)) payload.expectedPageId = s.document.pageId;
     const job = { id:randomUUID(), sessionId:s.id, operation, payload, status:'queued', createdAt:now() };
     jobs.set(job.id,job); return summary(job);
   }
@@ -65,7 +66,22 @@ export function createBridge({ token, now = Date.now, sessionTTL = 45000, jobTTL
       if (!authorized(req.headers.authorization)) throw fail('연결 코드가 올바르지 않습니다.',401);
       settle();
       const url = new URL(req.url, `http://${expectedHost}`);
-      if (req.method === 'GET' && url.pathname === '/health') return send(200,{name:'layer-bridge',version:'0.2.0',sessions:activeSessions().length});
+      if(url.pathname.startsWith('/v1/sites')){
+        const service=siteService||await import('./site-jobs.mjs');
+        if(req.method==='GET'&&url.pathname==='/v1/sites')return send(200,await service.listSiteCollections());
+        if(req.method==='GET'&&url.pathname==='/v1/sites/status')return send(200,await service.siteCaptureStatus(url.searchParams.get('manifestPath')));
+        if(req.method==='POST'){
+          const data=await body(req);
+          const action=url.pathname.slice('/v1/sites/'.length);
+          if(action==='discover')return send(200,await service.discoverSite(data));
+          if(action==='start')return send(202,await service.startSiteCapture(data));
+          if(action==='cancel')return send(200,await service.cancelSite(data.manifestPath));
+          if(action==='resume')return send(202,await service.resumeSiteCapture(data.manifestPath,data));
+          if(action==='import'){chooseSession(data.sessionId);return send(202,await service.startSiteImport(data.manifestPath,data.sessionId,data.options));}
+        }
+        throw fail('Unknown site operation',404);
+      }
+      if (req.method === 'GET' && url.pathname === '/health') return send(200,{name:'layer-bridge',version:'0.3.0-alpha.1',apiVersion:1,sessions:activeSessions().length});
       if (req.method === 'GET' && url.pathname === '/v1/sessions') return send(200,{sessions:activeSessions()});
       if (req.method === 'POST' && url.pathname === '/v1/connect') {
         const data=await body(req);
@@ -79,7 +95,7 @@ export function createBridge({ token, now = Date.now, sessionTTL = 45000, jobTTL
         const s=session(url.searchParams.get('sessionId'));s.lastSeen=now();
         if ([...jobs.values()].some(j=>j.sessionId===s.id&&j.status==='running')) return send(200,{job:null});
         const unresolved=[...jobs.values()].some(j=>j.sessionId===s.id&&j.status==='unknown');
-        const job=[...jobs.values()].find(j=>j.sessionId===s.id&&j.status==='queued'&&!(unresolved&&['import_capture','update_node'].includes(j.operation)));
+        const job=[...jobs.values()].find(j=>j.sessionId===s.id&&j.status==='queued'&&!(unresolved&&['import_capture','update_node','prepare_site'].includes(j.operation)));
         if (!job) return send(200,{job:null});
         job.status='running';job.startedAt=now();
         return send(200,{job:{id:job.id,operation:job.operation,payload:job.payload}});
@@ -90,6 +106,7 @@ export function createBridge({ token, now = Date.now, sessionTTL = 45000, jobTTL
         if (['complete','failed'].includes(job.status)) return send(200,{accepted:true,duplicate:true});
         if (!['running','unknown'].includes(job.status) || typeof data.ok !== 'boolean') throw fail('작업 상태가 올바르지 않습니다.',409);
         job.status=data.ok?'complete':'failed';job.completedAt=now();delete job.payload;delete job.error;
+        if(data.ok&&job.operation==='prepare_site'&&data.result?.document?.pageId)s.document={...s.document,...data.result.document};
         if (data.ok) job.result=data.result;else job.error=String(data.error||'피그마 작업 실패').slice(0,4000);
         return send(200,{accepted:true});
       }

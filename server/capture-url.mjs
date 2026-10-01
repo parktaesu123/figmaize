@@ -156,7 +156,16 @@ export async function captureUrl(options) {
 
 /** Capture an already-rendered, isolated page after navigation or a UI action. */
 export async function captureRenderedPage(browser, page, { width, height, title, response, checkActive = () => {} }) {
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
+      // Do not freeze a newly attached stream before its first decoded frame.
+      await Promise.all([...document.querySelectorAll('video')].map(video => {
+        if (video.readyState >= 2 || video.paused) return;
+        return new Promise(resolve => {
+          const done = () => { clearTimeout(timer); video.removeEventListener('loadeddata', done); resolve(); };
+          const timer = setTimeout(done, 1500);
+          video.addEventListener('loadeddata', done, { once: true });
+        });
+      }));
       for (const animation of document.getAnimations()) { try { animation.pause(); } catch {} }
       for (const video of document.querySelectorAll('video')) video.pause();
     });

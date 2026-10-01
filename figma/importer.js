@@ -1,6 +1,6 @@
 /* global figma, LayerBridge, __html__ */
 'use strict';
-figma.showUI(__html__, { width: 380, height: 570, themeColors: true });
+figma.showUI(__html__, { width: 420, height: 720, themeColors: true });
 let commandQueue = Promise.resolve();
 const seenCommands = new Set();
 const commandResults = new Map();
@@ -290,11 +290,15 @@ async function importCapture(capture, options) {
       target.y = b.y - (parent?.source.bounds.y || 0);
       target.setPluginData('layerBridgeSource', source.source || 'manual');
       target.setPluginData('layerBridgeId', source.id);
+      if (source.selector) target.setPluginData('layerBridgeSelector',source.selector);
       if (source.semantic) target.setPluginData('layerBridgeSemantic', JSON.stringify(source.semantic));
       byId.set(source.id, { target, source });
       if (i % 40 === 0) { figma.ui.postMessage({ type: 'progress', done: i, total: capture.nodes.length }); await new Promise(resolve => setTimeout(resolve, 0)); }
     }
     const structure = applyStructure(byId, warnings);
+    const componentNodes = [...byId.values()].map(item=>item.target).filter(node=>node.type==='COMPONENT');
+    let reuse={instanceCount:0,variantSets:0},prototypeLinks=0;
+    try{reuse=await shareComponents(byId,capture,stage,options,warnings);prototypeLinks=await linkCapturedState(stage,capture,options,warnings);}catch(error){warnings.add('재사용/상태 연결 일부 미적용: '+error.message);}
     stage.setPluginData('source', JSON.stringify(capture.source || {}));
     stage.setPluginData('warnings', JSON.stringify([...warnings]));
     if (figma.currentPage.id !== importPage.id) throw new Error('페이지가 변경되었습니다. 원하는 페이지에서 다시 실행하세요.');
@@ -302,14 +306,17 @@ async function importCapture(capture, options) {
     figma.notify(`${capture.nodes.length}개 편집 가능한 레이어를 가져왔습니다.`);
     // Return bounded evidence from the actual created nodes. Clients can verify
     // editability without walking the same large layer tree after every import.
-    const created = [...byId.values()].map(item => item.target);
+    const created = [...new Set([...byId.values()].map(item => item.target).concat(componentNodes))].filter(node=>!node.removed);
+    const survivingComponents = new Set(componentNodes.filter(node=>!node.removed).map(node=>node.id));
+    structure.components = structure.components.filter(item=>survivingComponents.has(item.id));
+    structure.componentCount = structure.components.length;
     const types = {};
     for (const node of created) types[node.type] = (types[node.type] || 0) + 1;
     const textSamples = created.filter(node => node.type === 'TEXT')
       .sort((a, b) => b.characters.length - a.characters.length).slice(0, 4)
       .map(node => ({ id: node.id, text: node.characters.slice(0, 120) }));
     const result = { nodeId: stage.id, editableRootId: root.id, pageId: importPage.id, count: capture.nodes.length,
-      nativeSummary: { types, textSamples, ...structure }, warnings: [...warnings] };
+      nativeSummary: { types, textSamples, ...structure, ...reuse, prototypeLinks }, warnings: [...warnings] };
     if (captureKey) stage.setPluginData('layerBridgeResult', JSON.stringify(result));
     if (collection && capture.source.presentation) {
       const plan = { ...capture.source.presentation, screenId: capture.source.screenId, cropNative: false };
@@ -441,8 +448,14 @@ function base64(data) {
 }
 async function executeCommand(operation, payload = {}) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('명령 데이터가 올바르지 않습니다.');
-  if (['import_capture', 'update_node'].includes(operation) && payload.expectedPageId && payload.expectedPageId !== figma.currentPage.id) throw new Error('연결한 페이지가 변경되었습니다. 원하는 페이지에서 플러그인을 다시 연결하세요.');
+  if (['import_capture', 'update_node', 'prepare_site'].includes(operation) && payload.expectedPageId && payload.expectedPageId !== figma.currentPage.id) throw new Error('연결한 페이지가 변경되었습니다. 원하는 페이지에서 플러그인을 다시 연결하세요.');
   if (operation === 'import_capture') return importCapture(payload.capture, payload.options || {});
+  if(operation==='prepare_site'){
+    if(!/^[-a-zA-Z0-9_]{1,100}$/.test(payload.collectionId)||typeof payload.title!=='string')throw Error('Invalid collection');
+    let page=figma.root.children.find(p=>p.getPluginData('figmaizeSite')===payload.collectionId);
+    if(!page){page=figma.createPage();page.name='Site / '+payload.title.slice(0,100);page.setPluginData('figmaizeSite',payload.collectionId);}
+    await figma.setCurrentPageAsync(page);return {document:documentInfo()};
+  }
   if (operation === 'get_document') return documentInfo();
   if (operation === 'get_selection') {
     const budget = { left: 200 }, nodes = [];

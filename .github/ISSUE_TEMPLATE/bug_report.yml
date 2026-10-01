@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a reproducible installation, capture or import problem.
+body:
+  - type: markdown
+    attributes:
+      value: Do not include pairing codes, cookies, private captures or private Figma links.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: figmaize / Node / OS / Figma Desktop versions; redacted doctor output.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Steps and an owned minimal HTML fixture or public URL.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual result
+      description: Include whether capture, import or editing failed. Mark unknown mutations explicitly.
+    validations:
+      required: true
